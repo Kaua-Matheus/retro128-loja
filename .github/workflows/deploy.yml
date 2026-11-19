@@ -51,6 +51,40 @@ jobs:
       - name: Configurar Pages
         uses: actions/configure-pages@v5
 
+      # Ação corretiva do post-mortem da release 2.0: bloqueia o deploy se a
+      # versão escolhida referencia capas que não existem na pasta configurada
+      # ou promoções de jogos que não estão no catálogo.
+      - name: Validar a release (capas e promoções)
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+
+          config = json.load(open("config/app-config.json", encoding="utf-8"))
+          catalogo = json.load(open(config["catalogoUrl"], encoding="utf-8"))
+          pasta = config["pastaCapas"]
+          ids = {j["id"] for j in catalogo["jogos"]}
+          erros = []
+
+          for jogo in catalogo["jogos"]:
+              caminho = os.path.join(pasta, jogo["capa"])
+              if not os.path.isfile(caminho):
+                  erros.append(f"capa ausente: {caminho} (jogo {jogo['id']})")
+
+          promocoes = config.get("blackFriday", {}).get("promocoes", {})
+          for id_jogo in promocoes:
+              if id_jogo not in ids:
+                  erros.append(f"promoção para jogo inexistente no catálogo: {id_jogo}")
+
+          print(f"Versão {config['versao']} · pastaCapas={pasta} · "
+                f"{len(catalogo['jogos'])} jogos · {len(promocoes)} promoções")
+          if erros:
+              for e in erros:
+                  print(f"::error::{e}")
+              print(f"DEPLOY BLOQUEADO: {len(erros)} problema(s) encontrado(s).")
+              sys.exit(1)
+          print("Validação OK: todas as capas existem e as promoções apontam para jogos do catálogo.")
+          PY
+
       - name: Empacotar o site
         uses: actions/upload-pages-artifact@v3
         with:
